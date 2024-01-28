@@ -6,119 +6,10 @@ from multiprocessing import Pool, Process, Queue
 import matplotlib.pyplot as plt
 from matplotlib import colormaps
 
-
-def compute_columns(args, result_queue):
-    integral_image, color_channel = args
-    for y in range(1, color_channel.shape[1]):
-        integral_image[0][y] = color_channel[0][y] + integral_image[0][y - 1]
-
-    result_queue.put(integral_image)
-
-
-def compute_rows(args, result_queue):
-    integral_image, color_channel = args
-    for x in range(1, color_channel.shape[0]):
-        integral_image[x][0] = color_channel[x][0] + integral_image[x - 1][0]
-
-    result_queue.put(integral_image)
-
-
-def compute_integral_image(integral_image, color_channel, x, y):
-    integral_image[x][y] = (color_channel[x][y] + integral_image[x - 1][y] + integral_image[x][y - 1] -
-                            integral_image[x - 1][y - 1])
-    return integral_image, x, y
-
-
-def compute_integral_image_parallel(color_channel):
-    integral_image = [[0 for x in range(color_channel.shape[1])] for y in range(color_channel.shape[0])]
-    integral_image[0][0] = color_channel[0][0]
-
-    result_queue = Queue()
-
-    p1 = Process(target=compute_columns, args=((integral_image, color_channel), result_queue))
-    p2 = Process(target=compute_rows, args=((integral_image, color_channel), result_queue))
-
-    p1.start()
-    p2.start()
-
-    result1 = result_queue.get()
-    result2 = result_queue.get()
-
-    print("horizontal, vertical done")
-
-    integral_image = np.subtract(np.add(result1, result2), integral_image)
-
-    p1.join()
-    p2.join()
-
-    rows = len(integral_image)
-
-    diagonals = []
-    for x in range(1, rows - 1):
-        diagonal_indices = np.column_stack((np.arange(x, 0, -1), np.arange(1, x + 1)))
-        diagonals.append(diagonal_indices.tolist())
-
-    for diagonal in diagonals:
-        with Pool(processes=os.cpu_count()) as pool:
-            subsets_integral_images = pool.starmap(compute_integral_image,
-                                                   [(integral_image, color_channel, x, y) for x, y in diagonal])
-
-            for j in range(0, len(subsets_integral_images)):
-                x_, y_ = subsets_integral_images[j][1], subsets_integral_images[j][2]
-                integral_image[x_, y_] = subsets_integral_images[j][0][x_][y_]
-            pool.close()
-            pool.join()
-        print("diagonal:", diagonals.index(diagonal) + 1, "done", len(diagonals) - (diagonals.index(diagonal) + 1),
-              "left")
-
-    print("channel done")
-    return integral_image
-
-
-def parallel_integral_image_color(image):
-    image_array = np.array(image)
-
-    red = image_array[:, :, 0].astype(np.int64)
-    green = image_array[:, :, 1].astype(np.int64)
-    blue = image_array[:, :, 2].astype(np.int64)
-
-    result = [compute_integral_image_parallel(color_channel) for color_channel in [red, green, blue]]
-
-    integral_img_r, integral_img_g, integral_img_b = result
-
-    return integral_img_r, integral_img_g, integral_img_b
-
-
-def integral_image_color(image):
-    image_array = np.array(image)
-
-    def calculate_integral_image(img_array):
-        integral_img = [[0 for x in range(red.shape[1])] for y in range(red.shape[0])]
-
-        for x in range(0, img_array.shape[0]):
-            for y in range(0, img_array.shape[1]):
-                if x == 0 and y == 0:
-                    integral_img[x][y] = img_array[x][y]
-                elif x == 0:
-                    integral_img[x][y] = img_array[x][y] + integral_img[x][y - 1]
-                elif y == 0:
-                    integral_img[x][y] = img_array[x][y] + integral_img[x - 1][y]
-                else:
-                    integral_img[x][y] = (img_array[x][y] + integral_img[x - 1][y] + integral_img[x][y - 1] -
-                                          integral_img[x - 1][y - 1])
-        return np.array(integral_img)
-
-    # Initialize arrays for each color channel
-    red = image_array[:, :, 0].astype(np.int64)
-    green = image_array[:, :, 1].astype(np.int64)
-    blue = image_array[:, :, 2].astype(np.int64)
-
-    result = [calculate_integral_image(color_channel) for color_channel in [red, green, blue]]
-
-    integral_img_r, integral_img_g, integral_img_b = result
-
-    return integral_img_r, integral_img_g, integral_img_b
-
+from parallel import parallel_integral_image_color
+from divide_and_conquer import divide_and_conquer
+from sequential import integral_image_color
+from vectorization import integral_image_vectorized
 
 if __name__ == '__main__':
     input_image_path = "img/5600-3200.jpg"
@@ -134,7 +25,7 @@ if __name__ == '__main__':
 
     option = input("Parallel (y/n): ")
     if option == "y":
-        p_type = input("Large image set or fast one image or different sizes: (l/f/d): ")
+        p_type = input("Large image set, fast one image v1, fast one image v2, vectorization: (l/f/f2/v): ")
         save = input("Save images (y/n): ")
         if p_type == "l":
             max_cpu = os.cpu_count()
@@ -164,11 +55,95 @@ if __name__ == '__main__':
                     plt.xlabel("Number of cores")
                     plt.ylabel("Time taken (s)")
                     plt.savefig(f'{len(image_array)}_images.png')
+
         elif p_type == "f":
             start = time.time()
             integral_image = parallel_integral_image_color(color_image)
             end = time.time()
             print(f"Time taken for parallel execution: {end - start}")
+        elif p_type == "f2":
+            start = time.time()
+            integral_image = divide_and_conquer(color_image)
+            end = time.time()
+            print(f"Time taken for parallel execution: {end - start}")
+        elif p_type == "v" and save == "n":
+            start = time.time()
+            integral_image = integral_image_vectorized(color_image)
+            end = time.time()
+            print(f"Time taken for vectorized execution: {end - start}")
+
+        elif p_type == "v" and save == "y":
+            times_v = {}
+            times_s = {}
+            image_paths = [('img/500-500', '500-500'), ('img/1000-1000', '1000-1000'),
+                           ('img/2000-2000', '2000-2000'), ('img/3000-3000', '3000-3000'),
+                           ('img/5600-3200', '5600-3200')]
+
+            for path, name in image_paths:
+                color_image = Image.open(f"{path}.jpg")
+                start = time.time()
+                integral_image_v = integral_image_vectorized(color_image)
+                end = time.time()
+                print(f"time taken for vectorized: {end - start}, {name}")
+                times_v[name] = end - start
+                start_time = time.time()
+                integral_image_c = integral_image_color(color_image)
+                end_time = time.time()
+                print(f"time taken for sequential: {end_time - start_time}, {name}")
+                times_s[name] = end_time - start_time
+                print(f"{name} increase in speed of {round((times_s[name]) / times_v[name], 2) * 100}%")
+                print(f"{name} done")
+
+            plt.plot(list(times_v.keys()), list(times_v.values()), color=color_map.colors[0], label="Vectorized")
+            plt.plot(list(times_s.keys()), list(times_s.values()), color=color_map.colors[1], label="Sequential")
+            plt.xlabel("Image size")
+            plt.ylabel("Time taken (s)")
+            plt.legend()
+            plt.savefig(f'calculation_parallelisation/vect_vs_sequential.png')
+            plt.show()
+
+        elif "test":
+            image_paths = [('img/500-500', '500-500'), ('img/1000-1000', '1000-1000'),
+                           ('img/2000-2000', '2000-2000'), ('img/3000-3000', '3000-3000'),
+                           ('img/5600-3200', '5600-3200')]
+            times_v = {}
+            times_p = {}
+            times_pv = {}
+            image_count = 8
+            for path, name in image_paths:
+                image = Image.open(f"{path}.jpg")
+                color_images = [image for _ in range(1, image_count + 1)]
+
+                start = time.time()
+                integral_image_v = [integral_image_vectorized(image) for image in color_images]
+                end = time.time()
+                times_v[name] = end - start
+                print(f"time taken for vectorized: {end - start}, {name}")
+                start_time = time.time()
+                with Pool(processes=os.cpu_count()) as pool:
+                    pool.map(integral_image_color, [image for image in color_images])
+                end_time = time.time()
+                times_p[name] = end_time - start_time
+                print(f"time taken for parallel: {end_time - start_time}, {name}")
+                start_time = time.time()
+                with Pool(processes=os.cpu_count()) as pool:
+                    pool.map(integral_image_vectorized, [image for image in color_images])
+                end_time = time.time()
+                times_pv[name] = end_time - start_time
+                print(f"time taken for parallel vectorized: {end_time - start_time}, {name}")
+                print(f"{name} increase in speed vectorized vs parallel {round(times_p[name] / times_v[name], 2) * 100}%")
+                print(f"{name} increase in speed vectorized vs parallel vectorized {round(times_pv[name] / times_v[name], 2) * 100}%")
+                print(f"{name} done")
+
+            plt.plot(list(times_v.keys()), list(times_v.values()), color=color_map.colors[0], label="Vectorized")
+            plt.plot(list(times_p.keys()), list(times_p.values()), color=color_map.colors[1], label="Parallel")
+            plt.plot(list(times_pv.keys()), list(times_pv.values()), color=color_map.colors[2], label="Parallel Vectorized")
+            plt.xlabel("Image size")
+            plt.ylabel("Time taken (s)")
+            plt.legend()
+            plt.savefig(f'calculation_parallelisation/vect_vs_batch_parallel.png')
+            plt.title(f"batch {image_count} images: Vectorized vs Batch Parallel ({os.cpu_count()} cores)")
+            plt.show()
 
     else:
         start = time.time()
