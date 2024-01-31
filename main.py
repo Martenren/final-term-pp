@@ -126,18 +126,16 @@ if __name__ == '__main__':
                 times_p[name] = end_time - start_time
                 print(f"time taken for parallel: {end_time - start_time}, {name}")
                 start_time = time.time()
-                with Pool(processes=os.cpu_count()) as pool:
-                    pool.map(integral_image_vectorized, [image for image in color_images])
+                [integral_image_color(image) for image in color_images]
                 end_time = time.time()
                 times_pv[name] = end_time - start_time
-                print(f"time taken for parallel vectorized: {end_time - start_time}, {name}")
+                print(f"time taken for sequential: {end_time - start_time}, {name}")
                 print(f"{name} increase in speed vectorized vs parallel {round(times_p[name] / times_v[name], 2) * 100}%")
-                print(f"{name} increase in speed vectorized vs parallel vectorized {round(times_pv[name] / times_v[name], 2) * 100}%")
                 print(f"{name} done")
 
             plt.plot(list(times_v.keys()), list(times_v.values()), color=color_map.colors[0], label="Vectorized")
             plt.plot(list(times_p.keys()), list(times_p.values()), color=color_map.colors[1], label="Parallel")
-            plt.plot(list(times_pv.keys()), list(times_pv.values()), color=color_map.colors[2], label="Parallel Vectorized")
+            plt.plot(list(times_pv.keys()), list(times_pv.values()), color=color_map.colors[2], label="Sequential")
             plt.xlabel("Image size")
             plt.ylabel("Time taken (s)")
             plt.legend()
@@ -146,7 +144,20 @@ if __name__ == '__main__':
             plt.show()
 
     else:
-        start = time.time()
-        integral_image_color(color_image)
-        end = time.time()
-        print(f"Time taken for sequential execution: {end - start}")
+        image_paths = [('img/500-500', '500-500'), ('img/1000-1000', '1000-1000'),
+                       ('img/2000-2000', '2000-2000'), ('img/3000-3000', '3000-3000'),
+                       ('img/5600-3200', '5600-3200')]
+        for path, name in image_paths:
+            color_image = Image.open(f"{path}.jpg")
+            start = time.time()
+            integral_image = integral_image_color(color_image)
+            end = time.time()
+            print(f"Time taken for sequential execution: {end - start}, {name}")
+        # start = time.time()
+        # integral_image_color(color_image)
+        # end = time.time()
+        # print(f"Time taken for sequential execution: {end - start}")
+
+
+
+

@@ -1,3 +1,4 @@
+import os
 from multiprocessing import Pool, Process, Queue
 import numpy as np
 
